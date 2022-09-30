@@ -20,30 +20,10 @@ class FedotWrapper:
         self.path_to_data_dir = path_to_data_dir
 
     def run(self, fit_type: str = 'interactive', is_visualise=True):
-        problem = 'regression'
-        train_x_path = Path(self.path_to_data_dir, 'x_train.csv')
-        train_y_path = Path(self.path_to_data_dir, 'y_train.csv')
-        # for true predict
-        # test_x_path = Path(self.path_to_data_dir, 'x_test.csv')
 
-        x_train = pd.read_csv(train_x_path).drop(['id'], axis=1)
-        y_train = pd.read_csv(train_y_path).drop(['id'], axis=1)
+        data_train, data_test = self._get_data()
 
-        y_train = y_train.fillna(np.mean(y_train))
-
-        x_train, x_test, y_train, y_test = train_test_split(x_train, y_train)
-
-        data_train = InputData(task=Task(TaskTypesEnum.regression), data_type=DataTypesEnum.table,
-                               idx=range(len(x_train)),
-                               features=x_train.values,
-                               target=y_train.values)
-
-        data_test = InputData(task=Task(TaskTypesEnum.regression), data_type=DataTypesEnum.table,
-                              idx=range(len(x_test)),
-                              features=x_test.values,
-                              target=y_test.values)
-
-        auto_model = Fedot(problem=problem, seed=42, timeout=3, safe_mode=False,
+        auto_model = Fedot(problem='regression', seed=42, timeout=3, safe_mode=False,
                            metric='rmse', preset='best_quality', n_jobs=6, with_tuning=False)
 
         if fit_type == 'normal':
@@ -68,6 +48,30 @@ class FedotWrapper:
 
         test_pred = tuned_pipeline.predict(data_test).predict
         self.save_prediction(test_pred, 'oilcode_prediction.csv')
+
+    def _get_data(self):
+        train_x_path = Path(self.path_to_data_dir, 'x_train.csv')
+        train_y_path = Path(self.path_to_data_dir, 'y_train.csv')
+        # for true predict
+        # test_x_path = Path(self.path_to_data_dir, 'x_test.csv')
+
+        x_train = pd.read_csv(train_x_path).drop(['id'], axis=1)
+        y_train = pd.read_csv(train_y_path).drop(['id'], axis=1)
+
+        y_train = y_train.fillna(np.mean(y_train))
+
+        x_train, x_test, y_train, y_test = train_test_split(x_train, y_train)
+
+        data_train = InputData(task=Task(TaskTypesEnum.regression), data_type=DataTypesEnum.table,
+                               idx=range(len(x_train)),
+                               features=x_train.values,
+                               target=y_train.values)
+
+        data_test = InputData(task=Task(TaskTypesEnum.regression), data_type=DataTypesEnum.table,
+                              idx=range(len(x_test)),
+                              features=x_test.values,
+                              target=y_test.values)
+        return data_train, data_test
 
     @staticmethod
     def save_prediction(prediction, path_to_save):
