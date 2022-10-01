@@ -33,7 +33,7 @@ res = pd.DataFrame(columns=['id',
                             'Температура размягчения, [°С]',
                             'Эластичность при 0 °С, [%]'])
 
-for i in y_test.columns:
+for i in reversed(y_test.columns):
     print(i)
     data_train = InputData(task=Task(TaskTypesEnum.regression), data_type=DataTypesEnum.table, idx=range(len(x_train)),
                            features=x_train.values,
@@ -73,7 +73,7 @@ res.to_csv('oil_pred.csv', index=False)
 
 pprint(r)
 
-print(sum(r))
+print((r))
 
 
 
