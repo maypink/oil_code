@@ -1,8 +1,12 @@
 import os
 from pathlib import Path
+from statistics import mean
 
+from scipy import spatial
 import numpy as np
 import pandas as pd
+import umap
+import seaborn as sns
 
 from fedot.api.main import Fedot
 from fedot.core.data.data import InputData
@@ -14,7 +18,10 @@ from fedot.core.pipelines.tuning.tuner_builder import TunerBuilder
 from fedot.core.repository.dataset_types import DataTypesEnum
 from fedot.core.repository.quality_metrics_repository import RegressionMetricsEnum
 from fedot.core.repository.tasks import TaskTypesEnum, Task
+from matplotlib import pyplot as plt
 from sklearn.metrics import mean_squared_error as rmse
+from sklearn.preprocessing import StandardScaler
+
 from metric import wnrmse
 from metric_res import get_metric
 
@@ -83,6 +90,8 @@ class FedotWrapper:
 
         y_train = self.y_train_full.fillna(np.mean(self.y_train_full))
 
+        self.x_train_full, self.x_val = self._use_clustering(self.x_train_full, self.x_val)
+
         data_full = InputData(task=Task(TaskTypesEnum.regression),
                               data_type=DataTypesEnum.table,
                               idx=range(len(self.x_train_full)),
@@ -98,13 +107,56 @@ class FedotWrapper:
 
         return data_full, data_train, data_test, data_val
 
+    def _use_clustering(self, data_train: pd.DataFrame, data_val: pd.DataFrame):
+        embeddings = self._get_embeddings(data_train)
+        data_train = self._add_cluster_column(embeddings, data_train)
+        data_val = self._add_cluster_column(embeddings, data_val)
+        return data_train, data_val
+
+    def _add_cluster_column(self, embeddings: np.ndarray, df: pd.DataFrame):
+        cat_cols = ['Адгезионная добавка', 'Полимер']
+        x_train_umap = df.drop(columns=['Пластификатор'])
+        ohe = pd.get_dummies(x_train_umap[cat_cols])
+        x_train_umap = x_train_umap.drop(columns=cat_cols).join(ohe)
+        scaled_sample = StandardScaler().fit_transform(x_train_umap)
+        reducer = umap.UMAP()
+        cur_embeddings = reducer.fit_transform(scaled_sample)
+        emb_column = []
+        emb_mean_0 = mean([emb[1] for emb in embeddings])
+        for i in range(x_train_umap.shape[0]):
+            # cosine_dists = [np.linalg.norm(cur_embeddings[i]-emb) for emb in embeddings]
+            cosine_dists = [spatial.distance.cosine(cur_embeddings[i], emb) for emb in embeddings]
+            emb_with_min_cos = embeddings[cosine_dists.index(min(cosine_dists))]
+            cur_emb_value = 'cluster0' if emb_with_min_cos[1] < emb_mean_0 else 'cluster1'
+            emb_column.append(cur_emb_value)
+        df['embedding'] = np.array(emb_column)
+        return df
+
+    @staticmethod
+    def _get_embeddings(data: pd.DataFrame):
+        cat_cols = ['Адгезионная добавка', 'Полимер']
+        x_train_umap = data.drop(columns=['Пластификатор'])
+        ohe = pd.get_dummies(x_train_umap[cat_cols])
+        x_train_umap = x_train_umap.drop(columns=cat_cols).join(ohe)
+        scaled_data = StandardScaler().fit_transform(x_train_umap)
+
+        reducer = umap.UMAP()
+        embedding = reducer.fit_transform(scaled_data)
+        plt.scatter(
+            embedding[:, 0],
+            embedding[:, 1])
+        plt.gca().set_aspect('equal', 'datalim')
+        plt.title('UMAP projection of the oil dataset', fontsize=24)
+        # plt.show()
+        return embedding
+
     def save_prediction(self, prediction, path_to_save):
         x_cols = ['% массы <Адгезионная добавка>', '% массы <Базовый битум>',
-                '% массы <Пластификатор>', '% массы <Полимер>',
-                '% массы <Сшивающая добавка>', 'Исходная игла при 25С <Базовый битум>',
-                'Адгезионная добавка', 'Пластификатор', 'Полимер',
-                'Базовая пенетрация для расчёта пластификатора',
-                'Расчёт рецептуры на глубину проникания иглы при 25']
+                  '% массы <Пластификатор>', '% массы <Полимер>',
+                  '% массы <Сшивающая добавка>', 'Исходная игла при 25С <Базовый битум>',
+                  'Адгезионная добавка', 'Пластификатор', 'Полимер',
+                  'Базовая пенетрация для расчёта пластификатора',
+                  'Расчёт рецептуры на глубину проникания иглы при 25']
         y_cols = ['Глубина  проникания иглы при 0 °С, [мм-1]',
                   'Глубина  проникания иглы при 25 °С, [мм-1]',
                   'Растяжимость  при температуре 0 °С, [см]',
