@@ -1,16 +1,14 @@
 import os
+from copy import deepcopy
 from pathlib import Path
 from statistics import mean
 from typing import Optional, List, Any
 
-from scipy import spatial
 import numpy as np
 import pandas as pd
 #import umap
 import sklearn.cluster as cluster
-import seaborn as sns
 
-from fedot.api.main import Fedot
 from fedot.core.data.data import InputData
 from fedot.core.data.data_split import train_test_data_setup
 from fedot.core.pipelines.node import PrimaryNode, SecondaryNode
@@ -95,8 +93,9 @@ class FedotWrapper:
             else:
                 tuned_pipeline.fit(data_full)
                 test_pred = tuned_pipeline.predict(data_val).predict
-
-        self.save_prediction(test_pred, 'filled_data.csv')
+        test_pred_final = self._random_search_koefs(data_val, np.array(test_pred))
+        self.save_models(models)
+        self.save_prediction(test_pred_final, 'filled_data.csv')
 
     def _fit_per_cluster(self, data: InputData, models: Optional[List[Any]] = None,
                          is_init_models: bool = False):
@@ -221,6 +220,13 @@ class FedotWrapper:
         plt.show()
         return embedding, kmeans_labels
 
+    @staticmethod
+    def save_models(models):
+        i = 0
+        for model in models:
+            model.save(os.path.join(os.getcwd(), 'models', f'model_{i}'))
+            i += 1
+
     def save_prediction(self, prediction, path_to_save):
         x_cols = ['% массы <Адгезионная добавка>', '% массы <Базовый битум>',
                   '% массы <Пластификатор>', '% массы <Полимер>',
@@ -262,3 +268,50 @@ class FedotWrapper:
         # y_train['id'] = y_train['id'].astype(int)
         metric = get_metric(y_pred, y_true)
         return metric
+
+    @staticmethod
+    def _random_search_koefs(data: InputData, preds: np.ndarray):
+        k = 0.001
+        k_small = k/2
+        for i in range(len(data.features)):
+            cur_sample = data.features[i][1:6]
+            adgez_dobavka, bitum, plastificator, polymer, shivaushaya_dobavka = cur_sample
+            koefs = [1, 1, 1, 1, 1]
+            if adgez_dobavka != 0:
+                koefs[0] += k_small
+                koefs[1] += k_small
+                koefs[3] += k_small
+
+            if plastificator > 7:
+                koefs[0] += 2 * k
+                koefs[1] += 2 * k
+                koefs[3] -= 2 * k
+                koefs[2] += 2 * k
+                koefs[4] += k
+            else:
+                koefs[0] += k
+                koefs[1] += k
+                koefs[3] -= k
+                koefs[2] += k
+                koefs[4] += k/2
+
+            if polymer > 3.6:
+                koefs[0] -= 2 * k
+                koefs[1] -= k_small
+                koefs[3] += 2 * k
+                koefs[2] += 2 * k
+                koefs[4] += 2 * k
+            else:
+                koefs[0] -= k
+                koefs[1] -= k_small
+                koefs[3] += k
+                koefs[2] += k
+                koefs[4] += k
+
+            if shivaushaya_dobavka != 0:
+                koefs[3] -= k_small
+
+        final_preds = deepcopy(preds)
+        for i in range(len(koefs)):
+            final_preds[:, i] *= koefs[i]
+        return final_preds
