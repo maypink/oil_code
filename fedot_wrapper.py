@@ -47,7 +47,7 @@ class FedotWrapper:
             pipeline.fit(data_train)
             comp_prediction = pipeline.predict(data_test).predict
 
-        metric_comp = rmse(data_test.target, comp_prediction)
+        metric_comp = rmse(data_test.target, comp_prediction, squared=False)
         # wnrmse_comp = wnrmse(data_test.target, comp_prediction)
         wnrmse_comp = self._get_wnrmse(data_test.target, comp_prediction)
 
