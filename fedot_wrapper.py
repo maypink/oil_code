@@ -162,7 +162,7 @@ class FedotWrapper:
                               idx=range(len(self.x_train_full)),
                               features=self.x_train_full.drop(columns=['id']).values,
                               target=y_train.drop(columns=['id']).values)
-        data_train, data_test = train_test_data_setup(data_full, split_ratio=0.75, shuffle_flag=True)
+        data_train, data_test = train_test_data_setup(data_full, split_ratio=0.85, shuffle_flag=True)
 
         data_val = InputData(task=Task(TaskTypesEnum.regression),
                              data_type=DataTypesEnum.table,
