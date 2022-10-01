@@ -1,11 +1,13 @@
 import os
 from pathlib import Path
 from statistics import mean
+from typing import Optional, List, Any
 
 from scipy import spatial
 import numpy as np
 import pandas as pd
 import umap
+import sklearn.cluster as cluster
 import seaborn as sns
 
 from fedot.api.main import Fedot
@@ -33,27 +35,41 @@ class FedotWrapper:
         self.y_train_full = None
         self.x_val = None
 
-    def run(self, fit_type: str = 'iterative', is_visualise=True):
+    def run(self, fit_type: str = 'iterative', is_visualise: bool = False, is_clustering: bool = True):
 
         data_full, data_train, data_test, data_val = self._get_data()
 
-        pipeline = self._get_pipeline()
-        pipeline.fit(data_train)
-        comp_prediction = pipeline.predict(data_test).predict
+        if is_clustering:
+            models = self._fit_per_cluster(data=data_train, is_init_models=True)
+            comp_prediction = self._predict_per_cluster(models, data_test)
+        else:
+            pipeline = self._get_pipeline()
+            pipeline.fit(data_train)
+            comp_prediction = pipeline.predict(data_test).predict
+
         metric_comp = rmse(data_test.target, comp_prediction)
         # wnrmse_comp = wnrmse(data_test.target, comp_prediction)
         wnrmse_comp = self._get_wnrmse(comp_prediction)
 
         print(f'RMSE after composing {metric_comp}')
         print(f'WNRMSE after composing {wnrmse_comp}')
+
         tuner = TunerBuilder(data_train.task) \
             .with_tuner(PipelineTuner) \
             .with_metric(RegressionMetricsEnum.RMSE) \
             .with_iterations(30) \
             .build(data_train)
 
-        tuned_pipeline = tuner.tune(pipeline)
-        tuned_prediction = tuned_pipeline.predict(data_test).predict
+        if is_clustering:
+            tuned_models = []
+            for model in models:
+                tuned_models.append(tuner.tune(model))
+            # self._fit_per_cluster(models=tuned_models, data=data_test)
+            tuned_prediction = self._predict_per_cluster(models=tuned_models, data=data_test)
+        else:
+            tuned_pipeline = tuner.tune(pipeline)
+            tuned_prediction = tuned_pipeline.predict(data_test).predict
+
         metrics_tuned = rmse(data_test.target, tuned_prediction, squared=False)
         # wnrmse_tuned = wnrmse(data_test.target, tuned_prediction)
         wnrmse_tuned = self._get_wnrmse(tuned_prediction)
@@ -63,12 +79,61 @@ class FedotWrapper:
             pipeline.show()
 
         if wnrmse_comp < wnrmse_tuned:
-            pipeline.fit(data_full)
-            test_pred = pipeline.predict(data_val).predict
+            if is_clustering:
+                models = self._fit_per_cluster(data=data_full, models=models)
+                test_pred = self._predict_per_cluster(models, data_val)
+            else:
+                pipeline.fit(data_full)
+                test_pred = pipeline.predict(data_val).predict
         else:
-            tuned_pipeline.fit(data_full)
-            test_pred = tuned_pipeline.predict(data_val).predict
+            if is_clustering:
+                tuned_models2 = []
+                for model in models:
+                    tuned_models2.append(tuner.tune(model))
+                tuned_models2 = self._fit_per_cluster(data=data_full, models=tuned_models2)
+                test_pred = self._predict_per_cluster(tuned_models2, data_val)
+            else:
+                tuned_pipeline.fit(data_full)
+                test_pred = tuned_pipeline.predict(data_val).predict
+
         self.save_prediction(test_pred, 'filled_data.csv')
+
+    def _fit_per_cluster(self, data: InputData, models: Optional[List[Any]] = None,
+                         is_init_models: bool = False):
+        if models is None:
+            models = []
+        clusters = list(set(list(sample[-1] for sample in data.features)))
+        for m in range(len(clusters)):
+            idxs = []
+            for j in range(len(data.features)):
+                if data.features[j][-1] == clusters[m]:
+                    idxs.append(j)
+            feats = [data.features[i] for i in idxs]
+            targs = [data.target[i] for i in idxs]
+            dataset = InputData(task=Task(TaskTypesEnum.regression),
+                                data_type=DataTypesEnum.table,
+                                idx=list(range(len(idxs))),
+                                features=np.array([list(feat) for feat in feats]),
+                                target=np.array([list(feat) for feat in targs]))
+            if is_init_models:
+                models.append(self._get_pipeline())
+            models[m].fit(dataset)
+            models.append(models[m])
+        return models
+
+    @staticmethod
+    def _predict_per_cluster(models, data: InputData):
+        clusters = list(set(list(sample[-1] for sample in data.features)))
+        preds = []
+        for i in range(len(data.features)):
+            model = models[clusters.index(data.features[i][-1])]
+            input_data = InputData(task=Task(TaskTypesEnum.regression),
+                                   data_type=DataTypesEnum.table,
+                                   idx=[1],
+                                   features=data.features[i].reshape(1, -1),
+                                   target=None)
+            preds.append(model.predict(input_data).predict[0])
+        return preds
 
     @staticmethod
     def _get_pipeline():
@@ -108,12 +173,13 @@ class FedotWrapper:
         return data_full, data_train, data_test, data_val
 
     def _use_clustering(self, data_train: pd.DataFrame, data_val: pd.DataFrame):
-        embeddings = self._get_embeddings(data_train)
-        data_train = self._add_cluster_column(embeddings, data_train)
-        data_val = self._add_cluster_column(embeddings, data_val)
+        embeddings, labels = self._get_embeddings(data_train)
+        data_train = self._add_cluster_column(embeddings, data_train, labels)
+        data_val = self._add_cluster_column(embeddings, data_val, labels)
         return data_train, data_val
 
-    def _add_cluster_column(self, embeddings: np.ndarray, df: pd.DataFrame):
+    @staticmethod
+    def _add_cluster_column(embeddings: np.ndarray, df: pd.DataFrame, labels):
         cat_cols = ['Адгезионная добавка', 'Полимер']
         x_train_umap = df.drop(columns=['Пластификатор'])
         ohe = pd.get_dummies(x_train_umap[cat_cols])
@@ -122,14 +188,13 @@ class FedotWrapper:
         reducer = umap.UMAP()
         cur_embeddings = reducer.fit_transform(scaled_sample)
         emb_column = []
-        emb_mean_0 = mean([emb[1] for emb in embeddings])
         for i in range(x_train_umap.shape[0]):
             # cosine_dists = [np.linalg.norm(cur_embeddings[i]-emb) for emb in embeddings]
             cosine_dists = [spatial.distance.cosine(cur_embeddings[i], emb) for emb in embeddings]
-            emb_with_min_cos = embeddings[cosine_dists.index(min(cosine_dists))]
-            cur_emb_value = 'cluster0' if emb_with_min_cos[1] < emb_mean_0 else 'cluster1'
+            label = labels[cosine_dists.index(min(cosine_dists))]
+            cur_emb_value = 'cluster0' if label == 0 else 'cluster1'
             emb_column.append(cur_emb_value)
-        df['embedding'] = np.array(emb_column)
+        df['cluster'] = np.array(emb_column)
         return df
 
     @staticmethod
@@ -142,13 +207,19 @@ class FedotWrapper:
 
         reducer = umap.UMAP()
         embedding = reducer.fit_transform(scaled_data)
+        kmeans_labels = cluster.KMeans(n_clusters=2).fit_predict(scaled_data)
+        emb_mean = mean([emb[0] for emb in embedding])
+        # colors = ['red' if emb[0] > emb_mean else 'green' for emb in embedding]
+
         plt.scatter(
             embedding[:, 0],
-            embedding[:, 1])
+            embedding[:, 1],
+            c=kmeans_labels)
         plt.gca().set_aspect('equal', 'datalim')
-        plt.title('UMAP projection of the oil dataset', fontsize=24)
-        # plt.show()
-        return embedding
+        plt.title('Projection of the oil dataset', fontsize=24)
+        plt.grid()
+        plt.show()
+        return embedding, kmeans_labels
 
     def save_prediction(self, prediction, path_to_save):
         x_cols = ['% массы <Адгезионная добавка>', '% массы <Базовый битум>',
