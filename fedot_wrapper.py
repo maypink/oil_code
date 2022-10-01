@@ -109,7 +109,7 @@ class FedotWrapper:
                 tuned_pipeline.fit(data_full)
                 test_pred = tuned_pipeline.predict(data_val).predict
 
-        self.save_prediction(test_pred)
+        self.save_prediction(test_pred, 'pred.csv')
 
     def _fit_per_cluster(self, data: InputData, models: Optional[List[Any]] = None,
                          is_init_models: bool = False):
@@ -135,7 +135,7 @@ class FedotWrapper:
                                 features=np.array([list(feat) for feat in feats]),
                                 target=np.array([list(feat) for feat in targs]))
             if is_init_models:
-                models.append(self._get_pipeline())
+                models.append(self._get_polyfeatures_pipeline())
             models[m].fit(dataset)
             models.append(models[m])
         return models
@@ -195,7 +195,7 @@ class FedotWrapper:
                               features=self.x_train_full.drop(columns=['Полимер']).values,
                               target=y_train.values)
         data_train, data_test = train_test_data_setup(data_full, split_ratio=0.75, shuffle_flag=True)
-
+        self.y_test = data_test.target
         data_val = InputData(task=Task(TaskTypesEnum.regression),
                              data_type=DataTypesEnum.table,
                              idx=range(len(self.x_val)),
@@ -257,40 +257,26 @@ class FedotWrapper:
         plt.show()
         return embedding, kmeans_labels
 
-    def save_prediction(self, prediction):
-        """ Save predictions in the correct form to the file """
-        x_cols = ['% массы <Адгезионная добавка>', '% массы <Базовый битум>',
-                  '% массы <Пластификатор>', '% массы <Полимер>',
-                  '% массы <Сшивающая добавка>', 'Исходная игла при 25С <Базовый битум>',
-                  'Адгезионная добавка', 'Пластификатор', 'Полимер',
-                  'Базовая пенетрация для расчёта пластификатора',
-                  'Расчёт рецептуры на глубину проникания иглы при 25']
-        y_cols = ['Глубина  проникания иглы при 0 °С, [мм-1]',
-                  'Глубина  проникания иглы при 25 °С, [мм-1]',
-                  'Растяжимость  при температуре 0 °С, [см]',
-                  'Температура размягчения, [°С]', 'Эластичность при 0 °С, [%]']
-        train_df = self.x_train_full.join(self.y_train_full)
-        test_df = self.x_val.join(pd.DataFrame(prediction, columns=['Эластичность при 0 °С, [%]']))
-        data = pd.concat([train_df, test_df]).reset_index(drop=True)
-        id_col = pd.DataFrame(np.arange(len(data)), columns=['id'])
-        x_train = id_col.join(data[x_cols])
-        y_train = id_col.join(data[y_cols])
-        x_train['id'] = x_train['id'].astype(int)
-        y_train['id'] = y_train['id'].astype(int)
-        x_train.to_csv('x_train_filled.csv', index=False)
-        y_train.to_csv('y_train_filled.csv', index=False)
+    @staticmethod
+    def save_prediction(prediction, path_to_save):
+        cols = ['id',
+                'Глубина  проникания иглы при 0 °С, [мм-1]',
+                'Глубина  проникания иглы при 25 °С, [мм-1]',
+                'Растяжимость  при температуре 0 °С, [см]',
+                'Температура размягчения, [°С]',
+                'Эластичность при 0 °С, [%]']
+        data = pd.DataFrame(prediction, axis=1),
+                            columns=cols)
+        data['id'] = data['id'].astype(int)
+        data.to_csv(path_to_save, index=False)
 
     def _get_wnrmse(self, prediction: np.ndarray) -> float:
         """ Gets metric WNRMSE """
-        y_cols = ['Глубина  проникания иглы при 0 °С, [мм-1]',
+        y_cols = ['id', 'Глубина  проникания иглы при 0 °С, [мм-1]',
                   'Глубина  проникания иглы при 25 °С, [мм-1]',
                   'Растяжимость  при температуре 0 °С, [см]',
                   'Температура размягчения, [°С]', 'Эластичность при 0 °С, [%]']
-        train_df = self.x_train_full.join(self.y_train_full)
-        test_df = self.x_val.join(pd.DataFrame(prediction, columns=['Эластичность при 0 °С, [%]']))
-        data = pd.concat([train_df, test_df]).reset_index(drop=True)
-        id_col = pd.DataFrame(np.arange(len(data)), columns=['id'])
-        y_train = id_col.join(data[y_cols])
-        y_train['id'] = y_train['id'].astype(int)
-        metric = get_metric(y_train, pd.read_csv(os.path.join(self.path_to_data_dir, "y_train.csv")))
+        wrapped_pred = pd.DataFrame(prediction, columns=y_cols)
+        wrapped_true = pd.DataFrame(self.y_test, columns=y_cols)
+        metric = get_metric(wrapped_pred, wrapped_true)
         return metric
