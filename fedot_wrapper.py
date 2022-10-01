@@ -6,7 +6,7 @@ from typing import Optional, List, Any
 from scipy import spatial
 import numpy as np
 import pandas as pd
-import umap
+#import umap
 import sklearn.cluster as cluster
 import seaborn as sns
 
@@ -49,7 +49,7 @@ class FedotWrapper:
 
         metric_comp = rmse(data_test.target, comp_prediction)
         # wnrmse_comp = wnrmse(data_test.target, comp_prediction)
-        wnrmse_comp = self._get_wnrmse(comp_prediction)
+        wnrmse_comp = self._get_wnrmse(data_test.target, comp_prediction)
 
         print(f'RMSE after composing {metric_comp}')
         print(f'WNRMSE after composing {wnrmse_comp}')
@@ -72,11 +72,11 @@ class FedotWrapper:
 
         metrics_tuned = rmse(data_test.target, tuned_prediction, squared=False)
         # wnrmse_tuned = wnrmse(data_test.target, tuned_prediction)
-        wnrmse_tuned = self._get_wnrmse(tuned_prediction)
+        wnrmse_tuned = self._get_wnrmse(data_test.target, tuned_prediction)
         print(f'RMSE after tuning {metrics_tuned}')
         print(f'WNRMSE after tuning {wnrmse_tuned}')
-        if is_visualise:
-            pipeline.show()
+        # if is_visualise:
+        #     pipeline.show()
 
         if wnrmse_comp < wnrmse_tuned:
             if is_clustering:
@@ -102,7 +102,7 @@ class FedotWrapper:
                          is_init_models: bool = False):
         if models is None:
             models = []
-        clusters = list(set(list(sample[-1] for sample in data.features)))
+        clusters = np.unique(data.features[:, -1])
         for m in range(len(clusters)):
             idxs = []
             for j in range(len(data.features)):
@@ -118,7 +118,7 @@ class FedotWrapper:
             if is_init_models:
                 models.append(self._get_pipeline())
             models[m].fit(dataset)
-            models.append(models[m])
+            # models.append(models[m])
         return models
 
     @staticmethod
@@ -144,10 +144,10 @@ class FedotWrapper:
         return pipeline
 
     def _get_data(self):
-        train_x_path = Path(self.path_to_data_dir, 'x_for_fill_train.csv')
-        train_y_path = Path(self.path_to_data_dir, 'y_for_fill_train.csv')
+        train_x_path = Path(self.path_to_data_dir, 'x_train_clustered.csv')
+        train_y_path = Path(self.path_to_data_dir, 'y_train.csv')
         # for true predict
-        val_x_path = Path(self.path_to_data_dir, 'x_for_fill_test.csv')
+        val_x_path = Path(self.path_to_data_dir, 'x_test_clustered.csv')
 
         self.x_train_full = pd.read_csv(train_x_path)
         self.y_train_full = pd.read_csv(train_y_path)
@@ -155,19 +155,19 @@ class FedotWrapper:
 
         y_train = self.y_train_full.fillna(np.mean(self.y_train_full))
 
-        self.x_train_full, self.x_val = self._use_clustering(self.x_train_full, self.x_val)
+        #self.x_train_full, self.x_val = self._use_clustering(self.x_train_full, self.x_val)
 
         data_full = InputData(task=Task(TaskTypesEnum.regression),
                               data_type=DataTypesEnum.table,
                               idx=range(len(self.x_train_full)),
-                              features=self.x_train_full.drop(columns=['Полимер']).values,
-                              target=y_train.values)
+                              features=self.x_train_full.drop(columns=['id']).values,
+                              target=y_train.drop(columns=['id']).values)
         data_train, data_test = train_test_data_setup(data_full, split_ratio=0.75, shuffle_flag=True)
 
         data_val = InputData(task=Task(TaskTypesEnum.regression),
                              data_type=DataTypesEnum.table,
                              idx=range(len(self.x_val)),
-                             features=self.x_val.drop(columns=['Полимер']).values,
+                             features=self.x_val.drop(columns=['id']).values,
                              target=None)
 
         return data_full, data_train, data_test, data_val
@@ -178,24 +178,24 @@ class FedotWrapper:
         data_val = self._add_cluster_column(embeddings, data_val, labels)
         return data_train, data_val
 
-    @staticmethod
-    def _add_cluster_column(embeddings: np.ndarray, df: pd.DataFrame, labels):
-        cat_cols = ['Адгезионная добавка', 'Полимер']
-        x_train_umap = df.drop(columns=['Пластификатор'])
-        ohe = pd.get_dummies(x_train_umap[cat_cols])
-        x_train_umap = x_train_umap.drop(columns=cat_cols).join(ohe)
-        scaled_sample = StandardScaler().fit_transform(x_train_umap)
-        reducer = umap.UMAP()
-        cur_embeddings = reducer.fit_transform(scaled_sample)
-        emb_column = []
-        for i in range(x_train_umap.shape[0]):
-            # cosine_dists = [np.linalg.norm(cur_embeddings[i]-emb) for emb in embeddings]
-            cosine_dists = [spatial.distance.cosine(cur_embeddings[i], emb) for emb in embeddings]
-            label = labels[cosine_dists.index(min(cosine_dists))]
-            cur_emb_value = 'cluster0' if label == 0 else 'cluster1'
-            emb_column.append(cur_emb_value)
-        df['cluster'] = np.array(emb_column)
-        return df
+    # @staticmethod
+    # def _add_cluster_column(embeddings: np.ndarray, df: pd.DataFrame, labels):
+    #     cat_cols = ['Адгезионная добавка', 'Полимер']
+    #     x_train_umap = df.drop(columns=['Пластификатор'])
+    #     ohe = pd.get_dummies(x_train_umap[cat_cols])
+    #     x_train_umap = x_train_umap.drop(columns=cat_cols).join(ohe)
+    #     scaled_sample = StandardScaler().fit_transform(x_train_umap)
+    #     reducer = umap.UMAP()
+    #     cur_embeddings = reducer.fit_transform(scaled_sample)
+    #     emb_column = []
+    #     for i in range(x_train_umap.shape[0]):
+    #         # cosine_dists = [np.linalg.norm(cur_embeddings[i]-emb) for emb in embeddings]
+    #         cosine_dists = [spatial.distance.cosine(cur_embeddings[i], emb) for emb in embeddings]
+    #         label = labels[cosine_dists.index(min(cosine_dists))]
+    #         cur_emb_value = 'cluster0' if label == 0 else 'cluster1'
+    #         emb_column.append(cur_emb_value)
+    #     df['cluster'] = np.array(emb_column)
+    #     return df
 
     @staticmethod
     def _get_embeddings(data: pd.DataFrame):
@@ -232,27 +232,33 @@ class FedotWrapper:
                   'Глубина  проникания иглы при 25 °С, [мм-1]',
                   'Растяжимость  при температуре 0 °С, [см]',
                   'Температура размягчения, [°С]', 'Эластичность при 0 °С, [%]']
-        train_df = self.x_train_full.join(self.y_train_full)
-        test_df = self.x_val.join(pd.DataFrame(prediction, columns=['Эластичность при 0 °С, [%]']))
-        data = pd.concat([train_df, test_df]).reset_index(drop=True)
-        id_col = pd.DataFrame(np.arange(len(data)), columns=['id'])
-        x_train = id_col.join(data[x_cols])
-        y_train = id_col.join(data[y_cols])
-        x_train['id'] = x_train['id'].astype(int)
-        y_train['id'] = y_train['id'].astype(int)
-        x_train.to_csv('x_train_filled.csv', index=False)
-        y_train.to_csv('y_train_filled.csv', index=False)
+        # train_df = self.x_train_full.join(self.y_train_full)
+        # test_df = self.x_val.join(pd.DataFrame(prediction, columns=['Эластичность при 0 °С, [%]']))
+        # data = pd.concat([train_df, test_df]).reset_index(drop=True)
+        id_col = pd.DataFrame(np.arange(len(prediction)), columns=['id'])
+        pred_df = id_col.join(pd.DataFrame(prediction, columns=y_cols))
+        pred_df.to_csv('oilcode_prediction.csv', index=False)
+        # x_train = id_col.join(data[x_cols])
+        # y_train = id_col.join(data[y_cols])
+        # x_train['id'] = x_train['id'].astype(int)
+        # y_train['id'] = y_train['id'].astype(int)
+        # x_train.to_csv('x_train_filled.csv', index=False)
+        # y_train.to_csv('y_train_filled.csv', index=False)
 
-    def _get_wnrmse(self, prediction: np.ndarray):
+    def _get_wnrmse(self, target: np.ndarray, prediction: np.ndarray):
         y_cols = ['Глубина  проникания иглы при 0 °С, [мм-1]',
                   'Глубина  проникания иглы при 25 °С, [мм-1]',
                   'Растяжимость  при температуре 0 °С, [см]',
                   'Температура размягчения, [°С]', 'Эластичность при 0 °С, [%]']
-        train_df = self.x_train_full.join(self.y_train_full)
-        test_df = self.x_val.join(pd.DataFrame(prediction, columns=['Эластичность при 0 °С, [%]']))
-        data = pd.concat([train_df, test_df]).reset_index(drop=True)
-        id_col = pd.DataFrame(np.arange(len(data)), columns=['id'])
-        y_train = id_col.join(data[y_cols])
-        y_train['id'] = y_train['id'].astype(int)
-        metric = get_metric(y_train, pd.read_csv(os.path.join(self.path_to_data_dir, "y_train.csv")))
+        id_col = pd.DataFrame(np.arange(len(target)), columns=['id'])
+        id_col['id'] = id_col['id'].astype(int)
+        y_true = id_col.join(pd.DataFrame(target, columns=y_cols))
+        y_pred = id_col.join(pd.DataFrame(prediction, columns=y_cols))
+        # train_df = self.x_train_full.join(self.y_train_full.drop(columns=['id']))
+        # test_df = self.x_val.join(pd.DataFrame(prediction, columns=y_cols))
+        # data = pd.concat([train_df, test_df]).reset_index(drop=True)
+        # id_col = pd.DataFrame(np.arange(len(data)), columns=['id'])
+        # y_train = id_col.join(data[y_cols])
+        # y_train['id'] = y_train['id'].astype(int)
+        metric = get_metric(y_pred, y_true)
         return metric
