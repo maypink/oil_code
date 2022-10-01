@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,7 @@ from fedot.core.repository.quality_metrics_repository import RegressionMetricsEn
 from fedot.core.repository.tasks import TaskTypesEnum, Task
 from sklearn.metrics import mean_squared_error as rmse
 from metric import wnrmse
+from metric_res import get_metric
 
 
 class FedotWrapper:
@@ -32,7 +34,8 @@ class FedotWrapper:
         pipeline.fit(data_train)
         comp_prediction = pipeline.predict(data_test).predict
         metric_comp = rmse(data_test.target, comp_prediction)
-        wnrmse_comp = wnrmse(data_test.target, comp_prediction)
+        # wnrmse_comp = wnrmse(data_test.target, comp_prediction)
+        wnrmse_comp = self._get_wnrmse(comp_prediction)
 
         print(f'RMSE after composing {metric_comp}')
         print(f'WNRMSE after composing {wnrmse_comp}')
@@ -45,7 +48,8 @@ class FedotWrapper:
         tuned_pipeline = tuner.tune(pipeline)
         tuned_prediction = tuned_pipeline.predict(data_test).predict
         metrics_tuned = rmse(data_test.target, tuned_prediction, squared=False)
-        wnrmse_tuned = wnrmse(data_test.target, tuned_prediction)
+        # wnrmse_tuned = wnrmse(data_test.target, tuned_prediction)
+        wnrmse_tuned = self._get_wnrmse(tuned_prediction)
         print(f'RMSE after tuning {metrics_tuned}')
         print(f'WNRMSE after tuning {wnrmse_tuned}')
         if is_visualise:
@@ -115,3 +119,17 @@ class FedotWrapper:
         y_train['id'] = y_train['id'].astype(int)
         x_train.to_csv('x_train_filled.csv', index=False)
         y_train.to_csv('y_train_filled.csv', index=False)
+
+    def _get_wnrmse(self, prediction: np.ndarray):
+        y_cols = ['Глубина  проникания иглы при 0 °С, [мм-1]',
+                  'Глубина  проникания иглы при 25 °С, [мм-1]',
+                  'Растяжимость  при температуре 0 °С, [см]',
+                  'Температура размягчения, [°С]', 'Эластичность при 0 °С, [%]']
+        train_df = self.x_train_full.join(self.y_train_full)
+        test_df = self.x_val.join(pd.DataFrame(prediction, columns=['Эластичность при 0 °С, [%]']))
+        data = pd.concat([train_df, test_df]).reset_index(drop=True)
+        id_col = pd.DataFrame(np.arange(len(data)), columns=['id'])
+        y_train = id_col.join(data[y_cols])
+        y_train['id'] = y_train['id'].astype(int)
+        metric = get_metric(y_train, pd.read_csv(os.path.join(self.path_to_data_dir, "y_train.csv")))
+        return metric
