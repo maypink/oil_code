@@ -6,13 +6,14 @@ import pandas as pd
 from fedot.api.main import Fedot
 from fedot.core.data.data import InputData
 from fedot.core.data.data_split import train_test_data_setup
+from fedot.core.pipelines.node import PrimaryNode, SecondaryNode
+from fedot.core.pipelines.pipeline import Pipeline
 from fedot.core.pipelines.tuning.unified import PipelineTuner
 from fedot.core.pipelines.tuning.tuner_builder import TunerBuilder
 from fedot.core.repository.dataset_types import DataTypesEnum
 from fedot.core.repository.quality_metrics_repository import RegressionMetricsEnum
 from fedot.core.repository.tasks import TaskTypesEnum, Task
 from sklearn.metrics import mean_squared_error as rmse
-from metric import wnrmse
 
 
 class FedotWrapper:
@@ -61,8 +62,8 @@ class FedotWrapper:
         self.save_prediction(test_pred, 'oilcode_prediction.csv')
 
     def _get_data(self):
-        train_x_path = Path(self.path_to_data_dir, 'x_train.csv')
-        train_y_path = Path(self.path_to_data_dir, 'y_train.csv')
+        train_x_path = Path(self.path_to_data_dir, 'x_train_filled.csv')
+        train_y_path = Path(self.path_to_data_dir, 'y_train_filled.csv')
         # for true predict
         val_x_path = Path(self.path_to_data_dir, 'x_test.csv')
 
@@ -99,3 +100,10 @@ class FedotWrapper:
                             columns=cols)
         data['id'] = data['id'].astype(int)
         data.to_csv(path_to_save, index=False)
+
+
+def _get_pipeline():
+    p_n = PrimaryNode('poly_features')
+    s1_n = SecondaryNode('scaling', nodes_from=[p_n])
+    s2_n = SecondaryNode('ridge', nodes_from=[s1_n])
+    return Pipeline(s2_n)
