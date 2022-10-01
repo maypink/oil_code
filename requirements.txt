@@ -1,0 +1,2 @@
+pip install git+git://github.com/nccr-itmo/FEDOT@branch-for-hack#egg=fedot
+umap-learn==0.5.3
