@@ -6,6 +6,8 @@ import pandas as pd
 from fedot.api.main import Fedot
 from fedot.core.data.data import InputData
 from fedot.core.data.data_split import train_test_data_setup
+from fedot.core.pipelines.node import PrimaryNode, SecondaryNode
+from fedot.core.pipelines.pipeline import Pipeline
 from fedot.core.pipelines.tuning.unified import PipelineTuner
 from fedot.core.pipelines.tuning.tuner_builder import TunerBuilder
 from fedot.core.repository.dataset_types import DataTypesEnum
@@ -27,14 +29,17 @@ class FedotWrapper:
                            metric='rmse', preset='best_quality', n_jobs=6, with_tuning=False,
                            use_pipelines_cache=False, use_preprocessing_cache=False)
 
-        if fit_type == 'normal':
-            auto_model.fit(features=data_train.features, target=data_train.target)
-        elif fit_type == 'iterative':
-            pass
-        comp_prediction = auto_model.predict(features=data_test)
-        metric_comp = auto_model.get_metrics()['rmse']
+        # if fit_type == 'normal':
+        #     auto_model.fit(features=data_train.features, target=data_train.target)
+        # elif fit_type == 'iterative':
+        #     pass
+        pipeline = self._get_pipeline()
+        pipeline.fit(data_train)
+        comp_prediction = pipeline.predict(data_test).predict
+        # metric_comp = auto_model.get_metrics()['rmse']
+        metric_comp = rmse(data_test.target, comp_prediction, squared=False)
         wnrmse_comp = wnrmse(data_test.target, comp_prediction)
-        pipeline = auto_model.current_pipeline
+        # pipeline = auto_model.current_pipeline
         print(f'RMSE after composing {metric_comp}')
         print(f'WNRMSE after composing {wnrmse_comp}')
         tuner = TunerBuilder(data_train.task) \
@@ -49,16 +54,24 @@ class FedotWrapper:
         wnrmse_tuned = wnrmse(data_test.target, tuned_prediction)
         print(f'RMSE after tuning {metrics_tuned}')
         print(f'WNRMSE after tuning {wnrmse_tuned}')
-        if is_visualise:
-            auto_model.current_pipeline.show()
+        # if is_visualise:
+        #     auto_model.current_pipeline.show()
 
         if wnrmse_comp < wnrmse_tuned:
-            auto_model.current_pipeline.fit(data_full)
-            test_pred = auto_model.current_pipeline.predict(data_val).predict
+            pipeline.fit(data_full)
+            test_pred = pipeline.predict(data_val).predict
         else:
             tuned_pipeline.fit(data_full)
             test_pred = tuned_pipeline.predict(data_val).predict
         self.save_prediction(test_pred, 'oilcode_prediction.csv')
+
+    @staticmethod
+    def _get_pipeline():
+        poly_node = PrimaryNode('poly_features')
+        scaling_node = SecondaryNode('scaling', nodes_from=[poly_node])
+        ridge_node = SecondaryNode('ridge', nodes_from=[scaling_node])
+        pipeline = Pipeline(ridge_node)
+        return pipeline
 
     def _get_data(self):
         train_x_path = Path(self.path_to_data_dir, 'x_train.csv')
@@ -77,13 +90,13 @@ class FedotWrapper:
                               idx=range(len(x_train_full)),
                               features=x_train_full.values,
                               target=y_train.values)
-        data_train, data_test = train_test_data_setup(data_full, split_ratio=0.75, shuffle_flag=True)
+        data_train, data_test = train_test_data_setup(data_full, split_ratio=0.8, shuffle_flag=True)
 
         data_val = InputData(task=Task(TaskTypesEnum.regression),
-                                data_type=DataTypesEnum.table,
-                                idx=range(len(x_val)),
-                                features=x_val.values,
-                                target=None)
+                             data_type=DataTypesEnum.table,
+                             idx=range(len(x_val)),
+                             features=x_val.values,
+                             target=None)
 
         return data_full, data_train, data_test, data_val
 
