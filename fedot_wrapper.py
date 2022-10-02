@@ -1,8 +1,7 @@
 import os
 from copy import deepcopy
 from pathlib import Path
-from statistics import mean
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Tuple
 
 import numpy as np
 import pandas as pd
@@ -19,10 +18,10 @@ from fedot.core.repository.dataset_types import DataTypesEnum
 from fedot.core.repository.quality_metrics_repository import RegressionMetricsEnum
 from fedot.core.repository.tasks import TaskTypesEnum, Task
 from matplotlib import pyplot as plt
+from scipy import spatial
 from sklearn.metrics import mean_squared_error as rmse
 from sklearn.preprocessing import StandardScaler
 
-from metric import wnrmse
 from metric_res import get_metric
 
 
@@ -101,7 +100,7 @@ class FedotWrapper:
                 test_pred_final = tuned_pipeline.predict(data_val).predict
         # test_pred_final = self._apply_koefs(data_val, np.array(test_pred_final))
         self.save_models(models)
-        self.save_prediction(test_pred_final, 'filled_data.csv')
+        self.save_prediction(test_pred_final)
 
     def _fit_per_cluster(self, data: InputData, models: Optional[List[Any]] = None,
                          is_init_models: bool = False):
@@ -154,7 +153,7 @@ class FedotWrapper:
         return preds
 
     @staticmethod
-    def _get_pipeline():
+    def _get_pipeline() -> Pipeline:
         """ Get pipeline with poly features, scaling and ridge regression. """
         poly_node = PrimaryNode('poly_features')
         scaling_node = SecondaryNode('scaling', nodes_from=[poly_node])
@@ -175,7 +174,7 @@ class FedotWrapper:
 
         y_train = self.y_train_full.fillna(np.mean(self.y_train_full))
 
-        #self.x_train_full, self.x_val = self._use_clustering(self.x_train_full, self.x_val)
+        # self.x_train_full, self.x_val = self._use_clustering(self.x_train_full, self.x_val)
 
         data_full = InputData(task=Task(TaskTypesEnum.regression),
                               data_type=DataTypesEnum.table,
@@ -193,12 +192,31 @@ class FedotWrapper:
         return data_full, data_train, data_test, data_val
 
     def _use_clustering(self, data_train: pd.DataFrame, data_val: pd.DataFrame) \
-            -> Tuple[InputData, InputData]:
+            -> Tuple[pd.DataFrame, pd.DataFrame]:
         """ Method to apply clustering on data """
         embeddings, labels = self._get_embeddings(data_train)
         data_train = self._add_cluster_column(embeddings, data_train, labels)
         data_val = self._add_cluster_column(embeddings, data_val, labels)
         return data_train, data_val
+
+    @staticmethod
+    def _add_cluster_column(embeddings: np.ndarray, df: pd.DataFrame, labels) -> pd.DataFrame:
+        """ Adds a single column to data with clusters names in it. """
+        cat_cols = ['Адгезионная добавка', 'Полимер']
+        x_train_umap = df.drop(columns=['Пластификатор'])
+        ohe = pd.get_dummies(x_train_umap[cat_cols])
+        x_train_umap = x_train_umap.drop(columns=cat_cols).join(ohe)
+        scaled_sample = StandardScaler().fit_transform(x_train_umap)
+        reducer = umap.UMAP()
+        cur_embeddings = reducer.fit_transform(scaled_sample)
+        emb_column = []
+        for i in range(x_train_umap.shape[0]):
+            cosine_dists = [spatial.distance.cosine(cur_embeddings[i], emb) for emb in embeddings]
+            label = labels[cosine_dists.index(min(cosine_dists))]
+            cur_emb_value = 'cluster0' if label == 0 else 'cluster1'
+            emb_column.append(cur_emb_value)
+        df['cluster'] = np.array(emb_column)
+        return df
 
     @staticmethod
     def _get_embeddings(data: pd.DataFrame) -> Any:
