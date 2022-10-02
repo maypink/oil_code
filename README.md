@@ -1,6 +1,6 @@
 # oil_code
 
-Final result is in final branch.
+Final result is in main branch.
 
 The main executable file is `main.py`. 
 The cluster column is added to the data in [this notebook](https://colab.research.google.com/drive/1e59YI8xu3VPu_b7Si9Q155W5JpBUiOK7?usp=sharing).
