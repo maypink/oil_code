@@ -11,12 +11,12 @@
             "operation_type": "poly_features",
             "operation_name": "PolyFeaturesImplementation",
             "custom_params": {
-                "degree": 2,
-                "interaction_only": false
+                "degree": 5,
+                "interaction_only": true
             },
             "params": {
-                "degree": 2,
-                "interaction_only": false
+                "degree": 5,
+                "interaction_only": true
             },
             "nodes_from": [],
             "fitted_operation_path": [
@@ -45,10 +45,10 @@
             "operation_type": "ridge",
             "operation_name": "Ridge",
             "custom_params": {
-                "alpha": 2.0496547735074597
+                "alpha": 1.8761936315594117
             },
             "params": {
-                "alpha": 2.0496547735074597
+                "alpha": 1.8761936315594117
             },
             "nodes_from": [
                 1
@@ -64,5 +64,5 @@
         "preprocessing",
         "data_preprocessor.pkl"
     ],
-    "descriptive_id": "((/n_poly_features_{'degree': 2, 'interaction_only': False};)/n_scaling_default_params;)/n_ridge_{'alpha': 2.0496547735074597}"
+    "descriptive_id": "((/n_poly_features_{'degree': 5, 'interaction_only': True};)/n_scaling_default_params;)/n_ridge_{'alpha': 1.8761936315594117}"
 }
